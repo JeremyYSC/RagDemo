@@ -35,24 +35,27 @@ class RAGApplication:
 
 
 def main():
-    # Initialize a text splitter with specified chunk size and overlap
-    text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-        chunk_size=250, chunk_overlap=0
-    )
-
-    # Split the documents into chunks
-    doc_splits = text_splitter.split_documents(docs_list)
-
-    # Create embeddings for documents and store them in a vector store
-    vectorstore_to_save = SKLearnVectorStore.from_documents(
-        documents=doc_splits,
-        # > ollama pull bge-m3
-        embedding=OllamaEmbeddings(model="bge-m3"),
-        persist_path="vector_store.parquet",
-        serializer="parquet"
-    )
-    # Save the vector store to a local file
-    vectorstore_to_save.persist()
+    if os.path.exists('vector_store.parquet'):
+        print("vectorstore exists.")
+    else:
+        # Initialize a text splitter with specified chunk size and overlap
+        text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
+            chunk_size=250, chunk_overlap=0
+        )
+    
+        # Split the documents into chunks
+        doc_splits = text_splitter.split_documents(docs_list)
+    
+        # Create embeddings for documents and store them in a vector store
+        vectorstore_to_save = SKLearnVectorStore.from_documents(
+            documents=doc_splits,
+            # > ollama pull bge-m3
+            embedding=OllamaEmbeddings(model="bge-m3"),
+            persist_path="vector_store.parquet",
+            serializer="parquet"
+        )
+        # Save the vector store to a local file
+        vectorstore_to_save.persist()
 
     # Load the vector store from the local file
     vectorstore_from_load = SKLearnVectorStore(
