@@ -44,11 +44,23 @@ def main():
     doc_splits = text_splitter.split_documents(docs_list)
 
     # Create embeddings for documents and store them in a vector store
-    vectorstore = SKLearnVectorStore.from_documents(
+    vectorstore_to_save = SKLearnVectorStore.from_documents(
         documents=doc_splits,
-        embedding=OllamaEmbeddings(model="nomic-embed-text"),
+        # > ollama pull bge-m3
+        embedding=OllamaEmbeddings(model="bge-m3"),
+        persist_path="vector_store.parquet",
+        serializer="parquet"
     )
-    retriever = vectorstore.as_retriever(k=4)
+    # Save the vector store to a local file
+    vectorstore_to_save.persist()
+
+    # Load the vector store from the local file
+    vectorstore_from_load = SKLearnVectorStore(
+        embedding=OllamaEmbeddings(model="bge-m3"),
+        persist_path="vector_store.parquet",
+        serializer="parquet"
+    )
+    retriever = vectorstore_from_load.as_retriever(k=4)
 
     # Define the prompt template for the LLM
     prompt = PromptTemplate(
