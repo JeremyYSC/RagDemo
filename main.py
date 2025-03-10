@@ -5,7 +5,7 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import ChatOllama
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-# jj test
+
 # List of URLs to load documents from
 urls = [
     "https://lilianweng.github.io/posts/2023-06-23-agent",
