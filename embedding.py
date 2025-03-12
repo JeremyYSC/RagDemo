@@ -1,11 +1,24 @@
 from FlagEmbedding import BGEM3FlagModel
+from chromadb import EmbeddingFunction
 import utils
+
+# 自定義適配器，將 OllamaEmbeddings 包裝為 ChromaDB 相容的嵌入函數
+class EmbeddingWrapper(EmbeddingFunction):
+    def __init__(self):
+        super().__init__()  # 調用基類的 __init__
+        self.embedding_model =  BGEM3FlagModel(utils.get_embedding_path(), use_fp16=True)
+
+    def __call__(self, sentences):  # 符合 ChromaDB 的新介面要求
+        return self.embedding_model.encode(sentences,
+                                 batch_size=256,
+                                 max_length=512,
+                                 return_dense=True,
+                                 return_sparse=False,
+                                 return_colbert_vecs=False)['dense_vecs']
 
 class EmbeddingModel:
     def __init__(self):
-        # use_fp16: half-precision
-        self.model = BGEM3FlagModel(utils.get_embedding_path(),
-                                    use_fp16=True)
+        self.model = BGEM3FlagModel(utils.get_embedding_path(), use_fp16=True)
 
     def encode(self, sentences):
         """Encode the sentences
@@ -21,8 +34,8 @@ class EmbeddingModel:
         colbert_vecs: Multi-Vector (ColBERT), size=n*1024
         """
         return self.model.encode(sentences,
-                                 batch_size=256, # default is 256
-                                 max_length=512, # default is 512
+                                 batch_size=256,
+                                 max_length=512,
                                  return_dense=True,
                                  return_sparse=False,
                                  return_colbert_vecs=False)['dense_vecs']
