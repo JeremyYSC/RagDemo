@@ -11,6 +11,12 @@ class Reranker:
         return self.reranker.compute_score([(query, passage) for passage in passages], normalize=True)
 
     def do_rerank(self, query: str, passages: list[str], count=None) -> list[str]:
+        """
+        :param query: query given by user
+        :param passages: relevant chunks given by embedding
+        :param count: number of results of reranking
+        :return: {count} most relevant result
+        """
         scores = self.__compute_reranking_score(query, passages)
         result = sorted(zip(passages, scores), key=lambda x: x[1], reverse=True)
         # print(result)
