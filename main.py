@@ -2,16 +2,11 @@ import os
 import chromadb
 import time
 
-from langchain_community.document_loaders import WebBaseLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.embeddings import OpenVINOBgeEmbeddings
-from langchain_community.vectorstores import SKLearnVectorStore
 from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import ChatOllama
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import PyPDFLoader
-from rich import print as pprint
 from chromadb.api.types import EmbeddingFunction
 
 
@@ -24,17 +19,6 @@ class OllamaEmbeddingWrapper(EmbeddingFunction):
     def __call__(self, input):  # 符合 ChromaDB 的新介面要求
         return self.embedding_model.embed_documents(input)
 
-
-# List of URLs to load documents from
-urls = [
-    "https://lilianweng.github.io/posts/2023-06-23-agent",
-    "https://lilianweng.github.io/posts/2023-03-15-prompt-engineering",
-    "https://lilianweng.github.io/posts/2023-10-25-adv-attack-llm",
-]
-
-# Load documents from the URLs
-docs = [WebBaseLoader(url).load() for url in urls]
-docs_list = [item for sublist in docs for item in sublist]
 
 # 初始化 Ollama 模型
 llm = ChatOllama(
@@ -58,7 +42,7 @@ page_summary_prompt = PromptTemplate(
 answer_prompt = PromptTemplate(
     input_variables=["question", "context"],
     template="""
-    根據以下內容回答問題，並列出參考文件的檔名與頁數：
+    可以選擇是否要參考以下文件回答問題，如果有參考以下內容，請列出參考文件的檔名與頁數：
 
     問題：{question}
     內容：
@@ -158,6 +142,8 @@ def answer_question_from_chroma(question: str, top_k: int = 10):
     context = ""
 
     # 根據元數據提取原始 PDF 頁面內容
+    load_pdf_start_time = time.time()
+
     for summary, metadata, distance in zip(summaries, metadatas, distances):
         file_path = metadata["file"]
         page_num = metadata["page"]
@@ -172,27 +158,33 @@ def answer_question_from_chroma(question: str, top_k: int = 10):
 
     # # 使用 LLM 回答問題
     # print(context)
-    print(f"Load文件時間: {time.time() - start_time:.3f} 秒")
+    print(f"Load文件時間: {time.time() - load_pdf_start_time:.3f} 秒")
+    llm_start_time = time.time()
     rag_chain = answer_prompt | llm | StrOutputParser()
     answer = rag_chain.invoke({"question": question, "context": context})
-    print(f"回答問題時間: {time.time() - start_time:.3f} 秒")
+    print(f"LLM回答問題時間: {time.time() - llm_start_time:.3f} 秒")
+    print(f"總耗時: {time.time() - start_time:.3f} 秒")
     return answer
 
 
-# Define the RAG application class
-class RAGApplication:
-    def __init__(self, retriever, rag_chain):
-        self.retriever = retriever
-        self.rag_chain = rag_chain
+# 函數：持續提問模式
+def interactive_question_mode():
+    print("\n進入問答模式，請輸入問題（輸入 'exit' 退出）：")
+    while True:
+        question = input("問題：")
+        if question.lower() == "exit":
+            print("退出問答模式")
+            break
+        if not question.strip():
+            print("請輸入有效的問題！")
+            continue
 
-    def run(self, question):
-        # Retrieve relevant documents
-        documents = self.retriever.invoke(question)
-        # Extract content from retrieved documents
-        doc_texts = "\\n".join([doc.page_content for doc in documents])
-        # Get the answer from the language model
-        answer = self.rag_chain.invoke({"question": question, "documents": doc_texts})
-        return answer
+        answer= answer_question_from_chroma(question)
+
+        print("\n問題：", question)
+        print("\n回答：")
+        print(answer)
+        print("\n" + "=" * 50)
 
 
 def main():
@@ -202,52 +194,7 @@ def main():
     # 執行摘要生成
     # summarize_all_pdfs_in_directory(root_directory)
 
-    print(answer_question_from_chroma("請問政府對於環境議題的努力?"))
-
-    # Initialize a text splitter with specified chunk size and overlap
-    # text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
-    #     chunk_size=10, chunk_overlap=0, separators=['\n']
-    # )
-
-    # Split the documents into chunks
-    # doc_splits = text_splitter.split_documents(file_context)
-
-    # Create embeddings for documents and store them in a vector store
-    # vectorstore = SKLearnVectorStore.from_documents(
-    #     documents=doc_splits,
-    #     embedding=OllamaEmbeddings(model="nomic-embed-text"),
-    # )
-    # retriever = vectorstore.as_retriever(k=4)
-
-    # Define the prompt template for the LLM
-    # prompt = PromptTemplate(
-    #     template="""You are an assistant for question-answering tasks.
-    #     Use the following documents to answer the question.
-    #     If you don't know the answer, just say that you don't know.
-    #     Use three sentences maximum and keep the answer concise:
-    #     Question: {question}
-    #     Documents: {documents}
-    #     Answer:
-    #     """,
-    #     input_variables=["question", "documents"],
-    # )
-
-    # Initialize the LLM with Llama 3.1 model
-    # llm = ChatOllama(
-    #     model="llama3.1",
-    #     temperature=0,
-    # )
-
-    # Create a chain combining the prompt template and LLM
-    # rag_chain = prompt | llm | StrOutputParser()
-
-    # Initialize the RAG application
-    # rag_application = RAGApplication(retriever, rag_chain)
-    # Example usage
-    # question = "What is prompt engineering"
-    # answer = rag_application.run(question)
-    # print("Question:", question)
-    # print("Answer:", answer)
+    interactive_question_mode()
 
 
 if __name__ == '__main__':
