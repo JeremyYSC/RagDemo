@@ -1,14 +1,11 @@
 #!/usr/bin/env python
-import os
 from FlagEmbedding import FlagReranker
+import utils
 
 
 class Reranker:
-    MODEL_PATH = "model"
-    RERANKER_NAME = "bge-reranker-v2-m3"
     def __init__(self):
-        path = os.path.join(self.MODEL_PATH, self.RERANKER_NAME)
-        self.reranker = FlagReranker(path, use_fp16=True, local_files_only=True)
+        self.reranker = FlagReranker(utils.get_reranker_path(), use_fp16=True, local_files_only=True)
 
     def __compute_reranking_score(self, query: str, passages: list[str]):
         return self.reranker.compute_score([(query, passage) for passage in passages], normalize=True)

@@ -1,9 +1,10 @@
 from FlagEmbedding import BGEM3FlagModel
+import utils
 
 class EmbeddingModel:
     def __init__(self):
         # use_fp16: half-precision
-        self.model = BGEM3FlagModel('BAAI/bge-m3',
+        self.model = BGEM3FlagModel(utils.get_embedding_path(),
                                     use_fp16=True)
 
     def encode(self, sentences):
