@@ -1,5 +1,6 @@
 import os
 import chromadb
+import time
 
 from langchain_community.document_loaders import WebBaseLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -13,6 +14,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from rich import print as pprint
 from chromadb.api.types import EmbeddingFunction
 
+
 # 自定義適配器，將 OllamaEmbeddings 包裝為 ChromaDB 相容的嵌入函數
 class OllamaEmbeddingWrapper(EmbeddingFunction):
     def __init__(self, model_name: str = "bge-m3"):  # 提供預設值，避免必須參數
@@ -21,6 +23,7 @@ class OllamaEmbeddingWrapper(EmbeddingFunction):
 
     def __call__(self, input):  # 符合 ChromaDB 的新介面要求
         return self.embedding_model.embed_documents(input)
+
 
 # List of URLs to load documents from
 urls = [
@@ -35,9 +38,9 @@ docs_list = [item for sublist in docs for item in sublist]
 
 # 初始化 Ollama 模型
 llm = ChatOllama(
-        model="llama3.1",
-        temperature=0,
-    )  # 假設使用 llama3 模型，請根據您的 Ollama 設定調整
+    model="llama3.1",
+    temperature=0,
+)
 
 # 定義生成頁面摘要的 Prompt 模板
 page_summary_prompt = PromptTemplate(
@@ -51,6 +54,20 @@ page_summary_prompt = PromptTemplate(
     """
 )
 
+# 定義回答問題的 Prompt 模板
+answer_prompt = PromptTemplate(
+    input_variables=["question", "context"],
+    template="""
+    根據以下內容回答問題，並列出參考文件的檔名與頁數：
+
+    問題：{question}
+    內容：
+    {context}
+
+    答案：
+    """
+)
+
 dbpath = "./"  # ChromaDB 儲存路徑
 chroma_client = chromadb.PersistentClient(path=dbpath)
 
@@ -59,6 +76,7 @@ collection = chroma_client.get_or_create_collection(
     metadata={"hnsw:space": "cosine"},
     embedding_function=OllamaEmbeddingWrapper()
 )
+
 
 # 函數：處理單個 PDF 文件的每一頁
 def process_pdf_pages(file_path):
@@ -78,7 +96,7 @@ def process_pdf_pages(file_path):
 
             # 生成該頁的摘要
             rag_chain = page_summary_prompt | llm | StrOutputParser()
-            summary = rag_chain.invoke({"text":page_text})
+            summary = rag_chain.invoke({"text": page_text})
 
             # page_summaries.append(f"第 {i} 頁摘要:\n{summary}")
             print(f"第 {i} 頁摘要:\n{summary}")
@@ -118,6 +136,49 @@ def summarize_all_pdfs_in_directory(root_path):
                 process_pdf_pages(file_path)
 
 
+# 函數：從 ChromaDB 查詢並回答問題
+def answer_question_from_chroma(question: str, top_k: int = 10):
+    start_time = time.time()
+
+    # 從 ChromaDB 查詢最接近的 10 筆摘要
+    results = collection.query(
+        query_texts=[question],
+        n_results=top_k,  # 返回最多 10 個結果
+        include=["metadatas", "distances", "documents"]
+    )
+
+    print(f"存取DB時間: {time.time() - start_time:.3f} 秒")
+
+    # 提取查詢結果
+    summaries = results["documents"][0]
+    metadatas = results["metadatas"][0]
+    distances = results["distances"][0]
+
+    # 儲存原文內容
+    context = ""
+
+    # 根據元數據提取原始 PDF 頁面內容
+    for summary, metadata, distance in zip(summaries, metadatas, distances):
+        file_path = metadata["file"]
+        page_num = metadata["page"]
+
+        try:
+            loader = PyPDFLoader(file_path)
+            documents = loader.load()
+            original_text = documents[page_num - 1].page_content  # 頁碼從 1 開始，索引從 0 開始
+            context += f"\n---\n文件: {file_path}, 第 {page_num} 頁 (距離: {distance:.3f})\n摘要: {summary}\n原文:\n{original_text}\n"
+        except Exception as e:
+            context += f"\n---\n文件: {file_path}, 第 {page_num} 頁\n錯誤: 無法載入原文 ({str(e)})\n"
+
+    # # 使用 LLM 回答問題
+    # print(context)
+    print(f"Load文件時間: {time.time() - start_time:.3f} 秒")
+    rag_chain = answer_prompt | llm | StrOutputParser()
+    answer = rag_chain.invoke({"question": question, "context": context})
+    print(f"回答問題時間: {time.time() - start_time:.3f} 秒")
+    return answer
+
+
 # Define the RAG application class
 class RAGApplication:
     def __init__(self, retriever, rag_chain):
@@ -141,20 +202,7 @@ def main():
     # 執行摘要生成
     # summarize_all_pdfs_in_directory(root_directory)
 
-    results = collection.query(
-        query_texts=["關於環保的段落"],
-        n_results=10,  # 返回最多 10 個結果
-        include=["metadatas", "distances", "documents"]
-    )
-
-    for metadata, distance, document in zip(results["metadatas"][0], results["distances"][0], results["documents"][0]):
-        similarity = 1 - distance
-        print(metadata)
-        print(similarity)
-        print(document)
-
-
-
+    print(answer_question_from_chroma("請問政府對於環境議題的努力?"))
 
     # Initialize a text splitter with specified chunk size and overlap
     # text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
@@ -163,7 +211,6 @@ def main():
 
     # Split the documents into chunks
     # doc_splits = text_splitter.split_documents(file_context)
-    # pprint(doc_splits)
 
     # Create embeddings for documents and store them in a vector store
     # vectorstore = SKLearnVectorStore.from_documents(
