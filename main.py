@@ -9,6 +9,8 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import PyPDFLoader
 from chromadb.api.types import EmbeddingFunction
 from embedding import EmbeddingWrapper
+from reranker import Reranker
+
 
 # 自定義適配器，將 OllamaEmbeddings 包裝為 ChromaDB 相容的嵌入函數
 class OllamaEmbeddingWrapper(EmbeddingFunction):
@@ -155,13 +157,16 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     metadatas = results["metadatas"][0]
     distances = results["distances"][0]
 
+    ranker = Reranker(top_n=3)
+    reranked_summaries, reranked_metadatas, reranked_distances = ranker.do_rerank_results(question, zip(summaries, metadatas, distances))
+
     # 儲存原文內容
     context = ""
 
     # 根據元數據提取原始 PDF 頁面內容
     load_pdf_start_time = time.time()
 
-    for summary, metadata, distance in zip(summaries, metadatas, distances):
+    for summary, metadata, distance in zip(reranked_summaries, reranked_metadatas, reranked_distances):
         file_path = metadata["file"]
         page_num = metadata["page"]
         data_type = metadata["type"]
@@ -215,13 +220,15 @@ def main():
     )
 
     # 指定根目錄路徑
-    # root_directory = "./"  # 從當前目錄開始遍歷，也可以替換為其他路徑
+    #root_directory = "./"  # 從當前目錄開始遍歷，也可以替換為其他路徑
 
     # 執行摘要生成
-    # summarize_all_files_in_directory(collection, root_directory)
+    #summarize_all_files_in_directory(collection, root_directory)
 
     interactive_question_mode(collection)
-
+    # Q: 俄烏戰爭影響燃料價格，日本政府補貼幾億元以減輕用戶負擔 A:5500億
+    # Q: 給我黃色星星的圖片
+    # Q: 給我黃色太陽的圖片
 
 if __name__ == '__main__':
     main()
