@@ -8,7 +8,7 @@ from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import PyPDFLoader
 from chromadb.api.types import EmbeddingFunction
-
+from embedding import EmbeddingWrapper
 
 # 自定義適配器，將 OllamaEmbeddings 包裝為 ChromaDB 相容的嵌入函數
 class OllamaEmbeddingWrapper(EmbeddingFunction):
@@ -80,7 +80,8 @@ def process_pdf_pages(collection, file_path):
 
             metadata = {
                 "file": file_path,
-                "page": i
+                "page": i,
+                "type": "file"
             }
 
             ids.append(f"{os.path.basename(file_path)}_page_{i}")
@@ -96,21 +97,44 @@ def process_pdf_pages(collection, file_path):
     except Exception as e:
         print([f"處理文件 {file_path} 時發生錯誤：{str(e)}"])
 
+def process_images(vision_language, collection, file_path):
+    try:
+        summary = vision_language.image_request(image_path=file_path)
+        print(f"摘要:\n {summary}")
+        collection.add(
+            documents=summary,
+            ids=[f"{os.path.basename(file_path)}"],
+            metadatas=[{
+                "file": file_path,
+                "page": 0,
+                "type": "image"
+            }]
+        )
+    except Exception as e:
+        print([f"處理文件 {file_path} 時發生錯誤：{str(e)}"])
 
-# 主函數：遍歷根目錄下所有 PDF 文件並為每頁生成摘要
-def summarize_all_pdfs_in_directory(collection, root_path):
+# 主函數：遍歷根目錄下所有 PDF 文件並為每頁生成摘要，遍歷根目錄下所有 image 並為每張圖片生成摘要
+def summarize_all_files_in_directory(collection, root_path):
     # 確保根目錄存在
     if not os.path.exists(root_path):
         print(f"{root_path} 不存在！")
         return
 
     # 使用 os.walk 遍歷根目錄及其所有子資料夾
+    from vision_language import VisionLanguage
+    vision_language = VisionLanguage()
     for dirpath, _, filenames in os.walk(root_path):
         for filename in filenames:
             if filename.lower().endswith(".pdf"):
                 file_path = os.path.join(dirpath, filename)
                 print(f"\n正在處理: {file_path}")
                 process_pdf_pages(collection, file_path)
+            elif (filename.lower().endswith((".jpg", ".jpeg", ".png")) and
+                    "model" not in dirpath.lower() and
+                    "venv" not in dirpath.lower()):
+                file_path = os.path.join(dirpath, filename)
+                print(f"\n正在處理: {file_path}")
+                process_images(vision_language, collection, file_path)
 
 
 # 函數：從 ChromaDB 查詢並回答問題
@@ -140,15 +164,18 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     for summary, metadata, distance in zip(summaries, metadatas, distances):
         file_path = metadata["file"]
         page_num = metadata["page"]
+        data_type = metadata["type"]
 
-        try:
-            loader = PyPDFLoader(file_path)
-            documents = loader.load()
-            original_text = documents[page_num - 1].page_content  # 頁碼從 1 開始，索引從 0 開始
-            context += f"\n---\n文件: {file_path}, 第 {page_num} 頁 (距離: {distance:.3f})\n摘要: {summary}\n原文:\n{original_text}\n"
-        except Exception as e:
-            context += f"\n---\n文件: {file_path}, 第 {page_num} 頁\n錯誤: 無法載入原文 ({str(e)})\n"
-
+        if "file" == data_type:
+            try:
+                loader = PyPDFLoader(file_path)
+                documents = loader.load()
+                original_text = documents[page_num - 1].page_content  # 頁碼從 1 開始，索引從 0 開始
+                context += f"\n---\n文件: {file_path}, 第 {page_num} 頁 (距離: {distance:.3f})\n摘要: {summary}\n原文:\n{original_text}\n"
+            except Exception as e:
+                context += f"\n---\n文件: {file_path}, 第 {page_num} 頁\n錯誤: 無法載入原文 ({str(e)})\n"
+        elif "image" == data_type:
+            context += f"\n---\n圖片: {file_path} (距離: {distance:.3f})\n摘要: {summary}\n"
     # # 使用 LLM 回答問題
     # print(context)
     print(f"Load文件時間: {time.time() - load_pdf_start_time:.3f} 秒")
@@ -184,14 +211,14 @@ def main():
     collection = chroma_client.get_or_create_collection(
         name="pdf_summaries",
         metadata={"hnsw:space": "cosine"},
-        embedding_function=OllamaEmbeddingWrapper()
+        embedding_function=EmbeddingWrapper()
     )
 
     # 指定根目錄路徑
     # root_directory = "./"  # 從當前目錄開始遍歷，也可以替換為其他路徑
 
     # 執行摘要生成
-    # summarize_all_pdfs_in_directory(collection, root_directory)
+    # summarize_all_files_in_directory(collection, root_directory)
 
     interactive_question_mode(collection)
 

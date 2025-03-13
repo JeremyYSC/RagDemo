@@ -9,3 +9,6 @@ def get_embedding_path():
 
 def get_reranker_path():
     return __get_path(constants.RERANKER_NAME)
+
+def get_vision_language_path():
+    return __get_path(constants.VISION_LANGUAGE_NAME)
