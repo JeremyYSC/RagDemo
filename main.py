@@ -55,15 +55,8 @@ answer_prompt = PromptTemplate(
 dbpath = "./"  # ChromaDB 儲存路徑
 chroma_client = chromadb.PersistentClient(path=dbpath)
 
-collection = chroma_client.get_or_create_collection(
-    name="pdf_summaries",
-    metadata={"hnsw:space": "cosine"},
-    embedding_function=OllamaEmbeddingWrapper()
-)
-
-
 # 函數：處理單個 PDF 文件的每一頁
-def process_pdf_pages(file_path):
+def process_pdf_pages(collection, file_path):
     try:
         # 使用 PyPDFLoader 讀取 PDF
         loader = PyPDFLoader(file_path)
@@ -105,7 +98,7 @@ def process_pdf_pages(file_path):
 
 
 # 主函數：遍歷根目錄下所有 PDF 文件並為每頁生成摘要
-def summarize_all_pdfs_in_directory(root_path):
+def summarize_all_pdfs_in_directory(collection, root_path):
     # 確保根目錄存在
     if not os.path.exists(root_path):
         print(f"{root_path} 不存在！")
@@ -117,11 +110,11 @@ def summarize_all_pdfs_in_directory(root_path):
             if filename.lower().endswith(".pdf"):
                 file_path = os.path.join(dirpath, filename)
                 print(f"\n正在處理: {file_path}")
-                process_pdf_pages(file_path)
+                process_pdf_pages(collection, file_path)
 
 
 # 函數：從 ChromaDB 查詢並回答問題
-def answer_question_from_chroma(question: str, top_k: int = 10):
+def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     start_time = time.time()
 
     # 從 ChromaDB 查詢最接近的 10 筆摘要
@@ -168,7 +161,7 @@ def answer_question_from_chroma(question: str, top_k: int = 10):
 
 
 # 函數：持續提問模式
-def interactive_question_mode():
+def interactive_question_mode(collection):
     print("\n進入問答模式，請輸入問題（輸入 'exit' 退出）：")
     while True:
         question = input("問題：")
@@ -179,7 +172,7 @@ def interactive_question_mode():
             print("請輸入有效的問題！")
             continue
 
-        answer= answer_question_from_chroma(question)
+        answer= answer_question_from_chroma(collection, question)
 
         print("\n問題：", question)
         print("\n回答：")
@@ -188,13 +181,19 @@ def interactive_question_mode():
 
 
 def main():
+    collection = chroma_client.get_or_create_collection(
+        name="pdf_summaries",
+        metadata={"hnsw:space": "cosine"},
+        embedding_function=OllamaEmbeddingWrapper()
+    )
+
     # 指定根目錄路徑
     # root_directory = "./"  # 從當前目錄開始遍歷，也可以替換為其他路徑
 
     # 執行摘要生成
-    # summarize_all_pdfs_in_directory(root_directory)
+    # summarize_all_pdfs_in_directory(collection, root_directory)
 
-    interactive_question_mode()
+    interactive_question_mode(collection)
 
 
 if __name__ == '__main__':
