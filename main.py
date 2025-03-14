@@ -47,7 +47,7 @@ answer_prompt = PromptTemplate(
     可以選擇是否要參考以下文件回答問題，如果有參考以下內容，請列出參考文件的檔名與頁數：
 
     問題：{question}
-    內容：
+    文件內容：
     {context}
 
     答案：
@@ -56,6 +56,7 @@ answer_prompt = PromptTemplate(
 
 dbpath = "./"  # ChromaDB 儲存路徑
 chroma_client = chromadb.PersistentClient(path=dbpath)
+
 
 # 函數：處理單個 PDF 文件的每一頁
 def process_pdf_pages(collection, file_path):
@@ -99,6 +100,7 @@ def process_pdf_pages(collection, file_path):
     except Exception as e:
         print([f"處理文件 {file_path} 時發生錯誤：{str(e)}"])
 
+
 def process_images(vision_language, collection, file_path):
     try:
         summary = vision_language.image_request(image_path=file_path)
@@ -114,6 +116,7 @@ def process_images(vision_language, collection, file_path):
         )
     except Exception as e:
         print([f"處理文件 {file_path} 時發生錯誤：{str(e)}"])
+
 
 # 主函數：遍歷根目錄下所有 PDF 文件並為每頁生成摘要，遍歷根目錄下所有 image 並為每張圖片生成摘要
 def summarize_all_files_in_directory(collection, root_path):
@@ -132,8 +135,8 @@ def summarize_all_files_in_directory(collection, root_path):
                 print(f"\n正在處理: {file_path}")
                 process_pdf_pages(collection, file_path)
             elif (filename.lower().endswith((".jpg", ".jpeg", ".png")) and
-                    "model" not in dirpath.lower() and
-                    "venv" not in dirpath.lower()):
+                  "model" not in dirpath.lower() and
+                  "venv" not in dirpath.lower()):
                 file_path = os.path.join(dirpath, filename)
                 print(f"\n正在處理: {file_path}")
                 process_images(vision_language, collection, file_path)
@@ -157,16 +160,13 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     metadatas = results["metadatas"][0]
     distances = results["distances"][0]
 
-    ranker = Reranker(top_n=3)
-    reranked_summaries, reranked_metadatas, reranked_distances = ranker.do_rerank_results(question, zip(summaries, metadatas, distances))
-
     # 儲存原文內容
-    context = ""
+    contexts = []
 
     # 根據元數據提取原始 PDF 頁面內容
     load_pdf_start_time = time.time()
 
-    for summary, metadata, distance in zip(reranked_summaries, reranked_metadatas, reranked_distances):
+    for summary, metadata, distance in zip(summaries, metadatas, distances):
         file_path = metadata["file"]
         page_num = metadata["page"]
         data_type = metadata["type"]
@@ -176,14 +176,24 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
                 loader = PyPDFLoader(file_path)
                 documents = loader.load()
                 original_text = documents[page_num - 1].page_content  # 頁碼從 1 開始，索引從 0 開始
-                context += f"\n---\n文件: {file_path}, 第 {page_num} 頁 (距離: {distance:.3f})\n摘要: {summary}\n原文:\n{original_text}\n"
+                contexts.append(
+                    f"文件: {file_path}, 第 {page_num} 頁 (距離: {distance:.3f})\n摘要: {summary}\n原文:\n{original_text}\n")
             except Exception as e:
-                context += f"\n---\n文件: {file_path}, 第 {page_num} 頁\n錯誤: 無法載入原文 ({str(e)})\n"
+                contexts.append(f"文件: {file_path}, 第 {page_num} 頁\n錯誤: 無法載入原文 ({str(e)})\n")
         elif "image" == data_type:
-            context += f"\n---\n圖片: {file_path} (距離: {distance:.3f})\n摘要: {summary}\n"
-    # # 使用 LLM 回答問題
-    # print(context)
+            contexts.append(f"圖片: {file_path} (距離: {distance:.3f})\n摘要: {summary}\n")
+
+    # print(contexts)
     print(f"Load文件時間: {time.time() - load_pdf_start_time:.3f} 秒")
+
+    reranker_start_time = time.time()
+    ranker = Reranker(top_n=3)
+    contexts = ranker.do_rerank(question, contexts)
+    context = "\n---\n".join(contexts)
+    print(context)
+    print(f"Rerank時間: {time.time() - reranker_start_time:.3f} 秒")
+
+    # 使用 LLM 回答問題
     llm_start_time = time.time()
     rag_chain = answer_prompt | llm | StrOutputParser()
     answer = rag_chain.invoke({"question": question, "context": context})
@@ -204,7 +214,7 @@ def interactive_question_mode(collection):
             print("請輸入有效的問題！")
             continue
 
-        answer= answer_question_from_chroma(collection, question)
+        answer = answer_question_from_chroma(collection, question)
 
         print("\n問題：", question)
         print("\n回答：")
@@ -220,15 +230,16 @@ def main():
     )
 
     # 指定根目錄路徑
-    #root_directory = "./"  # 從當前目錄開始遍歷，也可以替換為其他路徑
+    # root_directory = "./"  # 從當前目錄開始遍歷，也可以替換為其他路徑
 
     # 執行摘要生成
-    #summarize_all_files_in_directory(collection, root_directory)
+    # summarize_all_files_in_directory(collection, root_directory)
 
     interactive_question_mode(collection)
     # Q: 俄烏戰爭影響燃料價格，日本政府補貼幾億元以減輕用戶負擔 A:5500億 (行政院113年度中央政府總預算追加預算案.pdf，第4頁)
     # Q: 給我星星的圖片
     # Q: 給我太陽的圖片
+
 
 if __name__ == '__main__':
     main()
