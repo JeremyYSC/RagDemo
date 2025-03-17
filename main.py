@@ -190,6 +190,10 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     ranker = Reranker(top_n=3)
     contexts = ranker.do_rerank(question, contexts)
     context = "\n---\n".join(contexts)
+    # contexts = [["aa", context] for context in contexts]
+    # passage_getter = lambda x: x[1]
+    # contexts = ranker.do_rerank(question, contexts, passage_getter=passage_getter)
+    # context = "\n---\n".join([passage_getter(context) for context in contexts])
     print(context)
     print(f"Rerank時間: {time.time() - reranker_start_time:.3f} 秒")
 
