@@ -6,8 +6,10 @@ import utils
 
 
 class Reranker:
-    def __init__(self, top_n: int = None):
-        self.reranker = FlagReranker(utils.get_reranker_path(), use_fp16=True, local_files_only=True)
+    def __init__(self, model_path=None, top_n: int = None):
+        if model_path is None:
+            model_path = utils.get_reranker_path()
+        self.reranker = FlagReranker(model_path, use_fp16=True, local_files_only=True)
         self.top_n = top_n
 
     def _compute_reranking_score(self, query: str, passages: list[str]):
