@@ -10,6 +10,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from chromadb.api.types import EmbeddingFunction
 from embedding import EmbeddingWrapper
 from reranker import Reranker
+from ov_model.model_converter import convert_models
 
 
 # 自定義適配器，將 OllamaEmbeddings 包裝為 ChromaDB 相容的嵌入函數
@@ -227,6 +228,9 @@ def interactive_question_mode(collection):
 
 
 def main():
+    # Convert model
+    # convert_models()
+
     collection = chroma_client.get_or_create_collection(
         name="pdf_summaries",
         metadata={"hnsw:space": "cosine"},
