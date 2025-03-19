@@ -1,17 +1,17 @@
 import os
 import constants
 
-def __get_path(model_name: str) -> str:
+def _get_model_path(model_name: str) -> str:
     return os.path.join(constants.MODEL_PATH, model_name)
 
 def get_embedding_path():
-    return __get_path(constants.EMBEDDING_NAME)
+    return _get_model_path(constants.EMBEDDING_NAME)
 
 def get_reranker_path():
-    return __get_path(constants.RERANKER_NAME)
+    return _get_model_path(constants.RERANKER_NAME)
 
 def get_vision_language_path():
-    return __get_path(constants.VISION_LANGUAGE_NAME)
+    return _get_model_path(constants.VISION_LANGUAGE_NAME)
 
 def device_widget(default="AUTO", exclude=None, added=None, description="Device:"):
     import openvino as ov
