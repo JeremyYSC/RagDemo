@@ -24,7 +24,9 @@ class Reranker:
             pass
         request = Request()
         request.query = query
-        request.passages = [("text", passage) for passage in passages]
+        request.passages =  [
+            {"id": i, "text": passage} for i, passage in enumerate(passages)
+        ]
         return self.reranker.rerank(request)
 
     def do_rerank(self, question: str, passage_list: list, passage_getter=None) -> list:
