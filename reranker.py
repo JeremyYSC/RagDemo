@@ -8,7 +8,7 @@ class Reranker:
             model_path = utils.get_reranker_path()
         self.top_n = top_n
         self.reranker = OpenVINOReranker(model_name_or_path=model_path,
-                                         model_kwargs={"device": 'AUTO'})
+                                         model_kwargs={"device": utils.get_device()})
         if top_n is not None:
             self.reranker.top_n = top_n
 

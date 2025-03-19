@@ -7,10 +7,9 @@ class EmbeddingWrapper(EmbeddingFunction):
     def __init__(self):
         super().__init__()
         model_path = os.path.join("ov_model", "bge-m3-weight-int4")
-        embedding_device = utils.device_widget()
         self.embedding = OpenVINOBgeEmbeddings(
             model_name_or_path=model_path,
-            model_kwargs={"device": embedding_device.value, "compile": False},
+            model_kwargs={"device": utils.get_device(), "compile": False},
             encode_kwargs={
                 "mean_pooling": False,
                 "normalize_embeddings": True,
