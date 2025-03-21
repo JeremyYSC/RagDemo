@@ -1,6 +1,8 @@
 #!/usr/bin/env python
-from langchain_community.document_compressors.openvino_rerank import OpenVINOReranker
+import os
+import pprint
 import utils
+from langchain_community.document_compressors.openvino_rerank import OpenVINOReranker
 
 class Reranker:
     def __init__(self, model_path=None, top_n: int = None):
@@ -31,3 +33,12 @@ class Reranker:
         scores = self._compute_reranking_score(question, passages)
         result = [passage_list[element["id"]] for element in scores[:self.top_n]]
         return result
+
+if __name__ == '__main__':
+    pprint.pprint("start")
+    question = "What is panda?"
+    passages = ["openvino tool kit panda panda", "my son is a dumb ass", "panda is a bear-liked animal",
+                "anda anda pp anda anda pp isis", "panda is using a cellphone", "pandas is a useful python toolkit",
+                "I want a panda"]
+    reranker = Reranker(model_path=os.path.join("ov_model", "bge-reranker-v2-m3-weight-int4"))
+    pprint.pprint(reranker.do_rerank(question, passages))
