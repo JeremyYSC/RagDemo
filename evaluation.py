@@ -5,6 +5,8 @@ import utils
 
 from FlagEmbedding import BGEM3FlagModel
 from FlagEmbedding import FlagReranker
+from langchain_community.document_compressors.openvino_rerank import OpenVINOReranker
+from langchain_community.embeddings import OpenVINOBgeEmbeddings
 from llama_index.core import PromptTemplate, SimpleDirectoryReader, VectorStoreIndex
 from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.embeddings import BaseEmbedding
@@ -32,7 +34,7 @@ class LocalBGEM3Embedding(BaseEmbedding):
 
     @classmethod
     def class_name(cls) -> str:
-        return "local_bge_m3"
+        return "bge_m3"
 
     async def _aget_query_embedding(self, query: str) -> List[float]:
         return self._get_query_embedding(query)
@@ -59,6 +61,93 @@ class LocalBGEM3Embedding(BaseEmbedding):
         return [emb.tolist() if isinstance(emb, np.ndarray) else emb for emb in embeddings]
 
 
+class LocalOpenVINOBgeEmbedding(BaseEmbedding):
+    """使用 OpenVINOBgeEmbeddings 的本地嵌入模型"""
+    _model: OpenVINOBgeEmbeddings = PrivateAttr()
+
+    def __init__(
+            self,
+            model_path: str = None,
+            **kwargs: Any,
+    ) -> None:
+        """初始化嵌入模型
+
+        Args:
+            model_path (str, optional): OpenVINO BGE 模型的路徑
+            **kwargs: 其他參數，傳遞給父類
+        """
+        super().__init__(**kwargs)
+        # 初始化 OpenVINOBgeEmbeddings 模型
+        self._model = OpenVINOBgeEmbeddings(
+            model_name_or_path=model_path,
+            model_kwargs={"device": utils.get_device(), "compile": False},
+        )
+        self._model.ov_model.compile()
+
+    @classmethod
+    def class_name(cls) -> str:
+        """返回類別名稱"""
+        return "openvino_bge"
+
+    def _get_query_embedding(self, query: str) -> List[float]:
+        """生成查詢的嵌入向量
+
+        Args:
+            query (str): 查詢文本
+
+        Returns:
+            List[float]: 查詢的嵌入向量
+        """
+        embedding = self._model.embed_query(query)
+        return embedding
+
+    def _get_text_embedding(self, text: str) -> List[float]:
+        """生成單一文本的嵌入向量
+
+        Args:
+            text (str): 輸入文本
+
+        Returns:
+            List[float]: 文本的嵌入向量
+        """
+        embedding = self._model.embed_documents([text])[0]
+        return embedding
+
+    def _get_text_embeddings(self, texts: List[str]) -> List[List[float]]:
+        """生成多個文本的嵌入向量
+
+        Args:
+            texts (List[str]): 輸入文本列表
+
+        Returns:
+            List[List[float]]: 多個文本的嵌入向量列表
+        """
+        embeddings = self._model.embed_documents(texts)
+        return embeddings
+
+    async def _aget_query_embedding(self, query: str) -> List[float]:
+        """異步生成查詢的嵌入向量
+
+        Args:
+            query (str): 查詢文本
+
+        Returns:
+            List[float]: 查詢的嵌入向量
+        """
+        return self._get_query_embedding(query)
+
+    async def _aget_text_embedding(self, text: str) -> List[float]:
+        """異步生成單一文本的嵌入向量
+
+        Args:
+            text (str): 輸入文本
+
+        Returns:
+            List[float]: 文本的嵌入向量
+        """
+        return self._get_text_embedding(text)
+
+
 class FlagRerankerPostprocessor:
     def __init__(self, reranker, top_k: int = 3):
         self.reranker = reranker
@@ -77,6 +166,28 @@ class FlagRerankerPostprocessor:
         return sorted(nodes, key=lambda x: x.score or 0, reverse=True)[:self.top_k]
 
 
+class OpenVINORerankerPostprocessor:
+    def __init__(self, reranker, top_k: int = 3):
+        self.reranker = reranker
+        self.top_k = top_k  # 設定 top_k
+
+    def postprocess_nodes(self, nodes, query_bundle):
+        class Request:
+            pass
+
+        request = Request()
+        request.query = str(query_bundle.query_str)
+        request.passages = [{"id": i, "text": node.node.text} for i, node in enumerate(nodes)]
+        scores = self.reranker.rerank(request)
+        result = [nodes[element["id"]] for element in scores[:self.top_k]]
+        # print(scores)
+        # print(nodes)
+        # print(result)
+
+        # 返回 top_k 個節點
+        return result
+
+
 class CustomRetriever(BaseRetriever):
     def __init__(self, retriever, postprocessor):
         self.retriever = retriever
@@ -89,6 +200,8 @@ class CustomRetriever(BaseRetriever):
 
         if self.postprocessor:
             nodes = self.postprocessor.postprocess_nodes(nodes, query_bundle)
+        else:
+            nodes = nodes[:5]
 
         return nodes
 
@@ -97,7 +210,7 @@ def main():
     start_time = time.time()
     documents = SimpleDirectoryReader(input_files=['立法院第11屆第3會期行政院施政報告.pdf']).load_data()
     node_parser = SimpleNodeParser.from_defaults(chunk_size=512, separator='\n')
-    nodes = node_parser.get_nodes_from_documents(documents[4:5])
+    nodes = node_parser.get_nodes_from_documents(documents[4:9])
     print("node len: " + str(len(nodes)))
 
     llm = Ollama(
@@ -156,11 +269,22 @@ def main():
     # print(reference_answers)
     print("expected_ids len: " + str(len(expected_ids)))
 
-    embedding_model = LocalBGEM3Embedding(model_path=utils.get_embedding_path(), use_fp16=True)
+    # embedding_model = LocalBGEM3Embedding(model_path=utils.get_embedding_path(), use_fp16=True)
+
+    embedding_model = LocalOpenVINOBgeEmbedding(model_path=utils.get_openvino_embedding_path())
+
     index = VectorStoreIndex(nodes=nodes, embed_model=embedding_model)
     retriever = index.as_retriever(similarity_top_k=10)
-    reranker = FlagReranker(model_name_or_path=utils.get_reranker_path(), use_fp16=True, local_files_only=True)
-    postprocessor = FlagRerankerPostprocessor(reranker, top_k=5)
+
+    # reranker = FlagReranker(model_name_or_path=utils.get_reranker_path(), use_fp16=True, local_files_only=True)
+    # postprocessor = FlagRerankerPostprocessor(reranker, top_k=5)
+
+    reranker = OpenVINOReranker(
+        model_name_or_path=utils.get_openvino_reranker_path(),
+        model_kwargs={"device": utils.get_device()}
+    )
+    postprocessor = OpenVINORerankerPostprocessor(reranker, top_k=5)
+
     custom_retriever = CustomRetriever(retriever, postprocessor)
 
     evaluator = RetrieverEvaluator.from_metric_names(
