@@ -6,8 +6,7 @@ import utils
 class EmbeddingWrapper(EmbeddingFunction):
     def __init__(self):
         super().__init__()
-        model_path = os.path.join("ov_model", "bge-m3-weight-int4")
-        model_path = os.path.join("model", "bge-m3")
+        model_path = utils.get_openvino_embedding_path()
         self.embedding = OpenVINOBgeEmbeddings(
             model_name_or_path=model_path,
             model_kwargs={"device": utils.get_device(), "compile": False},

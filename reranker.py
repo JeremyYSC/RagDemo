@@ -7,7 +7,7 @@ from langchain_community.document_compressors.openvino_rerank import OpenVINORer
 class Reranker:
     def __init__(self, model_path=None, top_n: int = None):
         if model_path is None:
-            model_path = utils.get_reranker_path()
+            model_path = utils.get_openvino_reranker_path()
         self.top_n = top_n
         self.reranker = OpenVINOReranker(model_name_or_path=model_path,
                                          model_kwargs={"device": utils.get_device()})
