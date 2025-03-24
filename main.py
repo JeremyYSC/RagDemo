@@ -1,6 +1,8 @@
 import os
 import chromadb
 import time
+from multiprocessing import Queue
+import psutil
 
 from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import ChatOllama
@@ -10,7 +12,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from chromadb.api.types import EmbeddingFunction
 from embedding import EmbeddingWrapper
 from reranker import Reranker
-from ov_model.model_converter import convert_models
+from ov_model.ov_converter import convert_models
 
 
 # 自定義適配器，將 OllamaEmbeddings 包裝為 ChromaDB 相容的嵌入函數
@@ -58,6 +60,7 @@ answer_prompt = PromptTemplate(
 dbpath = "./"  # ChromaDB 儲存路徑
 chroma_client = chromadb.PersistentClient(path=dbpath)
 
+global_queue = None
 
 # 函數：處理單個 PDF 文件的每一頁
 def process_pdf_pages(collection, file_path):
@@ -144,15 +147,18 @@ def summarize_all_files_in_directory(collection, root_path):
 
 
 # 函數：從 ChromaDB 查詢並回答問題
-def answer_question_from_chroma(collection, question: str, top_k: int = 10):
+def answer_question_from_chroma(collection, question: str, top_k: int = 10, do_llm=True):
+
     start_time = time.time()
 
     # 從 ChromaDB 查詢最接近的 10 筆摘要
+    global_queue.put(("query_start", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
     results = collection.query(
         query_texts=[question],
         n_results=top_k,  # 返回最多 10 個結果
         include=["metadatas", "distances", "documents"]
     )
+    global_queue.put(("query_done", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
 
     print(f"存取DB時間: {time.time() - start_time:.3f} 秒")
 
@@ -188,8 +194,15 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     print(f"Load文件時間: {time.time() - load_pdf_start_time:.3f} 秒")
 
     reranker_start_time = time.time()
+
+    global_queue.put(("reranker_start", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
     ranker = Reranker(top_n=3)
+    global_queue.put(("reranker_done", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
+
+    global_queue.put(("reranking_start", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
     contexts = ranker.do_rerank(question, contexts)
+    global_queue.put(("reranking_done", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
+
     context = "\n---\n".join(contexts)
     # contexts = [["aa", context] for context in contexts]
     # passage_getter = lambda x: x[1]
@@ -198,6 +211,8 @@ def answer_question_from_chroma(collection, question: str, top_k: int = 10):
     print(context)
     print(f"Rerank時間: {time.time() - reranker_start_time:.3f} 秒")
 
+    if not do_llm:
+        return
     # 使用 LLM 回答問題
     llm_start_time = time.time()
     rag_chain = answer_prompt | llm | StrOutputParser()
@@ -227,14 +242,22 @@ def interactive_question_mode(collection):
         print("\n" + "=" * 50)
 
 
-def main():
+def main(queue=Queue(), question=None):
+    global global_queue
+    global_queue = queue
     # Convert model
     # convert_models()
+
+    global_queue.put(("process_start", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
+
+    global_queue.put(("embedding_start", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
+    embedding = EmbeddingWrapper()
+    global_queue.put(("embedding_done", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
 
     collection = chroma_client.get_or_create_collection(
         name="pdf_summaries",
         metadata={"hnsw:space": "cosine"},
-        embedding_function=EmbeddingWrapper()
+        embedding_function=embedding
     )
 
     # 指定根目錄路徑
@@ -243,10 +266,15 @@ def main():
     # 執行摘要生成
     # summarize_all_files_in_directory(collection, root_directory)
 
-    interactive_question_mode(collection)
+    if question:
+        answer_question_from_chroma(collection, question, do_llm=False)
+    else:
+        interactive_question_mode(collection)
     # Q: 俄烏戰爭影響燃料價格，日本政府補貼幾億元以減輕用戶負擔 A:5500億 (行政院113年度中央政府總預算追加預算案.pdf，第4頁)
     # Q: 給我星星的圖片
     # Q: 給我太陽的圖片
+
+    global_queue.put(("process_done", psutil.Process(os.getpid()).memory_info().rss / 1024 ** 2))
 
 
 if __name__ == '__main__':
